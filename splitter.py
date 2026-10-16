@@ -13,6 +13,7 @@ class Expense:
     participants: list[str]
     amount: Decimal
     date: str
+    shares: dict[str, Decimal]
 
 
 class ExpenseBook:
@@ -59,11 +60,22 @@ class ExpenseBook:
         if not date.strip():
             raise ValueError("Expense date cannot be empty.")
 
+        total_cents = int(amount * 100)
+        base_share_cents, leftover_cents = divmod(
+            total_cents, len(participant_names)
+        )
+        shares = {
+            name: (
+                Decimal(base_share_cents + (index < leftover_cents)) / 100
+            ).quantize(Decimal("0.01"))
+            for index, name in enumerate(participant_names)
+        }
         expense = Expense(
             payer=payer,
             participants=participant_names,
             amount=amount,
             date=date,
+            shares=shares,
         )
         self.expenses.append(expense)
         return expense

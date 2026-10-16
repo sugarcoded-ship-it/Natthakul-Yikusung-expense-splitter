@@ -21,6 +21,16 @@ def test_add_expense_normal_case() -> None:
     assert expense.amount == Decimal("300.00")
     assert expense.participants == ["A", "B", "C"]
     assert expense.date == "2026-10-16"
+    assert expense.shares == {
+        "A": Decimal("100.00"),
+        "B": Decimal("100.00"),
+        "C": Decimal("100.00"),
+    }
+    assert {key: str(value) for key, value in expense.shares.items()} == {
+        "A": "100.00",
+        "B": "100.00",
+        "C": "100.00",
+    }
 
 
 def test_add_expense_negative_amount_leaves_expense_list_empty() -> None:
@@ -189,3 +199,50 @@ def test_add_expense_with_empty_date_leaves_expenses_unchanged() -> None:
         )
 
     assert book.expenses == original_expenses
+
+
+def test_calculates_c4_shares_with_leftover_cent_for_first_participant() -> None:
+    book = ExpenseBook()
+    for name in ["A", "B", "C"]:
+        book.add_person(name)
+
+    expense = book.add_expense(
+        payer="A",
+        amount=Decimal("100.00"),
+        participants=["A", "B", "C"],
+        date="2026-10-16",
+    )
+
+    assert expense.shares == {
+        "A": Decimal("33.34"),
+        "B": Decimal("33.33"),
+        "C": Decimal("33.33"),
+    }
+    assert {key: str(value) for key, value in expense.shares.items()} == {
+        "A": "33.34",
+        "B": "33.33",
+        "C": "33.33",
+    }
+    assert sum(expense.shares.values(), Decimal("0.00")) == Decimal("100.00")
+
+
+def test_calculates_one_cent_share_for_two_participants() -> None:
+    book = ExpenseBook()
+    for name in ["A", "B"]:
+        book.add_person(name)
+
+    expense = book.add_expense(
+        payer="A",
+        amount=Decimal("0.01"),
+        participants=["A", "B"],
+        date="2026-10-16",
+    )
+
+    assert expense.shares == {
+        "A": Decimal("0.01"),
+        "B": Decimal("0.00"),
+    }
+    assert {key: str(value) for key, value in expense.shares.items()} == {
+        "A": "0.01",
+        "B": "0.00",
+    }
