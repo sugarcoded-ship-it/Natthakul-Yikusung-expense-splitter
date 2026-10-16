@@ -30,3 +30,40 @@ class ExpenseBook:
         person = Person(name=name)
         self.people[name] = person
         return person
+
+    def add_expense(
+        self,
+        payer: str,
+        amount: Decimal,
+        participants: list[str],
+        date: str,
+    ) -> Expense:
+        participant_names = list(participants)
+        if not isinstance(amount, Decimal) or not amount.is_finite():
+            raise ValueError("Expense amount must be a finite Decimal.")
+        if amount <= 0:
+            raise ValueError("Expense amount must be greater than zero.")
+        if amount.as_tuple().exponent < -2:
+            raise ValueError("Expense amount cannot have more than two decimal places.")
+        if not participant_names:
+            raise ValueError("Expense must have at least one participant.")
+        if len(set(participant_names)) != len(participant_names):
+            raise ValueError("Expense participants must be unique.")
+        if payer not in self.people:
+            raise ValueError(f"Unknown payer: {payer}")
+        unknown_participants = [
+            name for name in participant_names if name not in self.people
+        ]
+        if unknown_participants:
+            raise ValueError(f"Unknown participant: {unknown_participants[0]}")
+        if not date.strip():
+            raise ValueError("Expense date cannot be empty.")
+
+        expense = Expense(
+            payer=payer,
+            participants=participant_names,
+            amount=amount,
+            date=date,
+        )
+        self.expenses.append(expense)
+        return expense
