@@ -11,4 +11,7 @@
 6. Run all tests with `uv run pytest` and record the result in EVIDENCE.md. Then try a realistic task from start to finish: enter a real group dinner or trip with 3 to 4 people and 5 to 6 expenses, record a few repayments, and judge whether the output is useful.
 
 ## Later changes, if any
-Added per-person totals to R2 because the Purpose promises "who should pay whom", but the per-expense view alone didn't show it.
+- Added per-person totals to R2, because the Purpose promises "who should pay whom".
+- Added date validation (C7) after real use showed any text was accepted.
+- After real use, add expense re-asks each invalid field instead of returning to the menu, and an unknown name can be added on the spot.
+- Option 4 now shows a table.
