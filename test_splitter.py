@@ -201,6 +201,23 @@ def test_add_expense_with_empty_date_leaves_expenses_unchanged() -> None:
     assert book.expenses == original_expenses
 
 
+def test_c7_invalid_date_leaves_expenses_unchanged() -> None:
+    book = ExpenseBook()
+    for name in ["A", "B"]:
+        book.add_person(name)
+    original_expenses = list(book.expenses)
+
+    with pytest.raises(ValueError):
+        book.add_expense(
+            payer="A",
+            amount=Decimal("10.00"),
+            participants=["A", "B"],
+            date="2026-13-40",
+        )
+
+    assert book.expenses == original_expenses
+
+
 def test_calculates_c4_shares_with_leftover_cent_for_first_participant() -> None:
     book = ExpenseBook()
     for name in ["A", "B", "C"]:
@@ -392,3 +409,62 @@ def test_payer_repaying_themselves_leaves_data_unchanged() -> None:
 
     assert book.expenses == original_expenses
     assert book.expenses[0].repayments == original_repayments
+
+
+def test_amount_owed_returns_remaining_share() -> None:
+    book = ExpenseBook()
+    for name in ["A", "B"]:
+        book.add_person(name)
+    book.add_expense(
+        payer="A",
+        amount=Decimal("10.00"),
+        participants=["A", "B"],
+        date="2026-10-16",
+    )
+
+    assert book.amount_owed(0, "B") == Decimal("5.00")
+
+
+def test_amount_owed_returns_zero_after_full_repayment() -> None:
+    book = ExpenseBook()
+    for name in ["A", "B"]:
+        book.add_person(name)
+    book.add_expense(
+        payer="A",
+        amount=Decimal("10.00"),
+        participants=["A", "B"],
+        date="2026-10-16",
+    )
+    book.record_repayment(0, "B", Decimal("5.00"))
+
+    assert book.amount_owed(0, "B") == Decimal("0.00")
+
+
+def test_amount_owed_rejects_nonparticipant() -> None:
+    book = ExpenseBook()
+    for name in ["A", "B", "C"]:
+        book.add_person(name)
+    book.add_expense(
+        payer="A",
+        amount=Decimal("10.00"),
+        participants=["A", "B"],
+        date="2026-10-16",
+    )
+
+    with pytest.raises(ValueError):
+        book.amount_owed(0, "C")
+
+
+def test_amount_owed_rejects_payer() -> None:
+    book = ExpenseBook()
+    for name in ["A", "B"]:
+        book.add_person(name)
+    book.add_expense(
+        payer="A",
+        amount=Decimal("10.00"),
+        participants=["A", "B"],
+        date="2026-10-16",
+    )
+
+    with pytest.raises(ValueError):
+        book.amount_owed(0, "A")

@@ -1,5 +1,36 @@
 from dataclasses import dataclass, field
-from decimal import Decimal
+from datetime import date as calendar_date
+from decimal import Decimal, InvalidOperation
+
+
+def parse_amount(text: str) -> Decimal:
+    try:
+        amount = Decimal(text.strip())
+    except (AttributeError, InvalidOperation) as error:
+        raise ValueError("Amount must be a valid number.") from error
+    if not amount.is_finite():
+        raise ValueError("Expense amount must be a finite Decimal.")
+    if amount <= 0:
+        raise ValueError("Expense amount must be greater than zero.")
+    if amount.as_tuple().exponent < -2:
+        raise ValueError("Expense amount cannot have more than two decimal places.")
+    return amount.quantize(Decimal("0.01"))
+
+
+def parse_date(text: str) -> str:
+    try:
+        date_text = text.strip()
+    except AttributeError as error:
+        raise ValueError("Expense date must be a valid YYYY-MM-DD date.") from error
+    if not date_text:
+        raise ValueError("Expense date cannot be empty.")
+    try:
+        parsed_date = calendar_date.fromisoformat(date_text)
+    except ValueError as error:
+        raise ValueError("Expense date must be a valid YYYY-MM-DD date.") from error
+    if parsed_date.isoformat() != date_text:
+        raise ValueError("Expense date must be a valid YYYY-MM-DD date.")
+    return date_text
 
 
 @dataclass(frozen=True)
@@ -41,12 +72,9 @@ class ExpenseBook:
         date: str,
     ) -> Expense:
         participant_names = list(participants)
-        if not isinstance(amount, Decimal) or not amount.is_finite():
+        if not isinstance(amount, Decimal):
             raise ValueError("Expense amount must be a finite Decimal.")
-        if amount <= 0:
-            raise ValueError("Expense amount must be greater than zero.")
-        if amount.as_tuple().exponent < -2:
-            raise ValueError("Expense amount cannot have more than two decimal places.")
+        stored_amount = parse_amount(str(amount))
         if not participant_names:
             raise ValueError("Expense must have at least one participant.")
         if len(set(participant_names)) != len(participant_names):
@@ -58,10 +86,7 @@ class ExpenseBook:
         ]
         if unknown_participants:
             raise ValueError(f"Unknown participant: {unknown_participants[0]}")
-        if not date.strip():
-            raise ValueError("Expense date cannot be empty.")
-
-        stored_amount = amount.quantize(Decimal("0.01"))
+        date_text = parse_date(date)
         total_cents = int(stored_amount * 100)
         base_share_cents, leftover_cents = divmod(
             total_cents, len(participant_names)
@@ -76,7 +101,7 @@ class ExpenseBook:
             payer=payer,
             participants=participant_names,
             amount=stored_amount,
-            date=date,
+            date=date_text,
             shares=shares,
         )
         self.expenses.append(expense)
@@ -88,34 +113,36 @@ class ExpenseBook:
         from_person: str,
         amount: Decimal,
     ) -> None:
-        if not isinstance(amount, Decimal) or not amount.is_finite():
+        if not isinstance(amount, Decimal):
             raise ValueError("Repayment amount must be a finite Decimal.")
-        if amount.as_tuple().exponent < -2:
-            raise ValueError(
-                "Repayment amount cannot have more than two decimal places."
-            )
-        if amount <= 0:
-            raise ValueError("Repayment amount must be greater than zero.")
+        repayment_amount = parse_amount(str(amount))
         if not isinstance(expense_index, int) or not (
             0 <= expense_index < len(self.expenses)
         ):
             raise ValueError(f"Unknown expense index: {expense_index}")
 
         expense = self.expenses[expense_index]
-        if from_person not in expense.participants:
-            raise ValueError(
-                f"{from_person} is not a participant in this expense"
-            )
-        if from_person == expense.payer:
-            raise ValueError("The payer cannot repay themselves.")
-
-        repayment_amount = amount.quantize(Decimal("0.01"))
-        already_paid = expense.repayments.get(from_person, Decimal("0.00"))
-        still_owes = expense.shares[from_person] - already_paid
+        still_owes = self.amount_owed(expense_index, from_person)
         if repayment_amount > still_owes:
             raise ValueError("Repayment exceeds the amount still owed.")
 
+        already_paid = expense.repayments.get(from_person, Decimal("0.00"))
         expense.repayments[from_person] = already_paid + repayment_amount
+
+    def amount_owed(self, expense_index: int, person: str) -> Decimal:
+        if not isinstance(expense_index, int) or not (
+            0 <= expense_index < len(self.expenses)
+        ):
+            raise ValueError(f"Unknown expense index: {expense_index}")
+
+        expense = self.expenses[expense_index]
+        if person not in expense.participants:
+            raise ValueError(f"{person} is not a participant in this expense")
+        if person == expense.payer:
+            raise ValueError("The payer cannot repay themselves.")
+
+        already_paid = expense.repayments.get(person, Decimal("0.00"))
+        return expense.shares[person] - already_paid
 
     def status(self, expense_index: int) -> dict[str, dict[str, Decimal]]:
         if not isinstance(expense_index, int) or not (

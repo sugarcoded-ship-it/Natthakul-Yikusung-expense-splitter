@@ -1,6 +1,6 @@
 from decimal import Decimal, InvalidOperation
 
-from splitter import ExpenseBook
+from splitter import ExpenseBook, parse_amount, parse_date
 
 
 def print_menu() -> None:
@@ -12,10 +12,7 @@ def print_menu() -> None:
 
 
 def read_amount(prompt: str) -> Decimal:
-    try:
-        return Decimal(input(prompt).strip())
-    except InvalidOperation as error:
-        raise ValueError("Amount must be a valid number.") from error
+    return parse_amount(input(prompt))
 
 
 def add_person(book: ExpenseBook) -> None:
@@ -24,14 +21,56 @@ def add_person(book: ExpenseBook) -> None:
 
 
 def add_expense(book: ExpenseBook) -> None:
-    payer = input("Payer: ").strip()
-    amount = read_amount("Amount: ")
-    participants = [
-        participant.strip()
-        for participant in input("Participants (comma-separated): ").split(",")
-        if participant.strip()
-    ]
-    date = input("Date: ").strip()
+    while True:
+        payer = input("Payer: ").strip()
+        if payer in book.people:
+            break
+        print(f"{payer} is not an existing person.")
+        if input(f"Add {payer}? (y/n): ").strip().lower() in {"y", "yes"}:
+            book.add_person(payer)
+            break
+
+    while True:
+        amount_text = input("Amount: ")
+        try:
+            amount = parse_amount(amount_text)
+            break
+        except ValueError as error:
+            print(f"Error: {error}")
+
+    while True:
+        participant_text = input("Participants (comma-separated): ")
+        participants = [
+            participant.strip()
+            for participant in participant_text.split(",")
+            if participant.strip()
+        ]
+        if not participants:
+            print("Error: Expense must have at least one participant.")
+            continue
+        unknown_participant = next(
+            (participant for participant in participants if participant not in book.people),
+            None,
+        )
+        if unknown_participant is None:
+            break
+        print(f"{unknown_participant} is not an existing person.")
+        if (
+            input(f"Add {unknown_participant}? (y/n): ").strip().lower()
+            in {"y", "yes"}
+        ):
+            book.add_person(unknown_participant)
+        else:
+            continue
+
+    while True:
+        date_text = input("Date: ")
+        try:
+            date = parse_date(date_text)
+            break
+        except ValueError as error:
+            print(f"Error: {error}")
+
     book.add_expense(payer, amount, participants, date)
     print("Expense added.")
 
@@ -43,20 +82,57 @@ def record_repayment(book: ExpenseBook) -> None:
 
     for index, expense in enumerate(book.expenses, start=1):
         print(f"{index}. {expense.date} - {expense.payer} - {expense.amount}")
-    expense_number_text = input("Expense number: ").strip()
-    try:
-        expense_number = int(expense_number_text)
-    except ValueError:
+    while True:
+        expense_number_text = input(
+            "Expense number (Enter to cancel): "
+        ).strip()
+        if not expense_number_text:
+            print("Cancelled.")
+            return
+        try:
+            expense_number = int(expense_number_text)
+        except ValueError:
+            print(f"Expense number must be between 1 and {len(book.expenses)}")
+            continue
+        if 1 <= expense_number <= len(book.expenses):
+            break
         print(f"Expense number must be between 1 and {len(book.expenses)}")
-        return
-    if not 1 <= expense_number <= len(book.expenses):
-        print(f"Expense number must be between 1 and {len(book.expenses)}")
-        return
     expense_index = expense_number - 1
-    from_person = input("Person repaying: ").strip()
-    amount = read_amount("Amount: ")
-    book.record_repayment(expense_index, from_person, amount)
-    print("Repayment recorded.")
+
+    if not any(
+        participant != book.expenses[expense_index].payer
+        for participant in book.expenses[expense_index].participants
+    ):
+        print("Nobody owes anything on this expense.")
+        return
+
+    while True:
+        from_person = input("Person repaying (Enter to cancel): ").strip()
+        if not from_person:
+            print("Cancelled.")
+            return
+        try:
+            amount_owed = book.amount_owed(expense_index, from_person)
+        except ValueError as error:
+            print(f"Error: {error}")
+            continue
+        if amount_owed == Decimal("0.00"):
+            print(f"{from_person} has already paid this expense.")
+            return
+
+        while True:
+            amount_text = input("Amount (Enter to cancel): ")
+            if not amount_text.strip():
+                print("Cancelled.")
+                return
+            try:
+                amount = parse_amount(amount_text)
+                book.record_repayment(expense_index, from_person, amount)
+            except ValueError as error:
+                print(f"Error: {error}")
+                continue
+            print("Repayment recorded.")
+            return
 
 
 def view_expenses(book: ExpenseBook) -> None:
@@ -64,23 +140,51 @@ def view_expenses(book: ExpenseBook) -> None:
         print("No expenses recorded yet.")
         return
 
-    for index, expense in enumerate(book.expenses, start=1):
-        print(f"\nExpense {index}:")
-        print(f"Date: {expense.date}")
-        print(f"Payer: {expense.payer}")
-        print(f"Amount: {expense.amount}")
-        print("Shares:")
-        for participant, share in expense.shares.items():
-            print(f"  {participant}: {share}")
-
-        print("Repayments and amounts still owed:")
-        for participant, details in book.status(index - 1).items():
-            print(
-                f"  {participant}: paid {details['paid']}, "
-                f"still owes {details['owes']}"
+    participants = list(
+        dict.fromkeys(
+            participant
+            for expense in book.expenses
+            for participant in expense.participants
+        )
+    )
+    rows: list[list[str]] = []
+    for index, expense in enumerate(book.expenses):
+        status = book.status(index)
+        participant_values = []
+        for participant in participants:
+            if participant not in expense.shares:
+                participant_values.append("-")
+                continue
+            share = expense.shares[participant]
+            if participant == expense.payer:
+                participant_values.append(f"{share}")
+                continue
+            details = status[participant]
+            participant_values.append(
+                f"{share} / paid {details['paid']} / owes {details['owes']}"
             )
+        rows.append(
+            [
+                str(index + 1),
+                expense.date,
+                expense.payer,
+                str(expense.amount),
+                *participant_values,
+            ]
+        )
 
-    print("\nTotals still owed:")
+    headers = ["#", "Date", "Payer", "Amount", *participants]
+    widths = [
+        max(len(headers[column]), *(len(row[column]) for row in rows))
+        for column in range(len(headers))
+    ]
+    print("\nExpenses:")
+    print("  ".join(header.ljust(width) for header, width in zip(headers, widths)))
+    print("  ".join("-" * width for width in widths))
+    for row in rows:
+        print("  ".join(value.ljust(width) for value, width in zip(row, widths)))
+
+    print("\nTotals:")
     totals = book.totals()
     for person, payer_totals in totals.items():
         nonzero_totals = {
@@ -89,7 +193,7 @@ def view_expenses(book: ExpenseBook) -> None:
             if amount != Decimal("0.00")
         }
         for payer, amount in nonzero_totals.items():
-            print(f"  {person} owes {payer}: {amount}")
+            print(f"  {person} → {payer} {amount}")
     if not any(
         amount != Decimal("0.00")
         for payer_totals in totals.values()
@@ -122,7 +226,6 @@ def run_menu() -> None:
         except (EOFError, KeyboardInterrupt):
             print("Goodbye.")
             return
-
 
 if __name__ == "__main__":
     run_menu()
